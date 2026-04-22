@@ -47,7 +47,10 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # GHCR_READ_TOKEN is a PAT with `read:packages` scope for the
+          # se4bio org — the auto GITHUB_TOKEN is scoped per-repo and
+          # can't pull packages published by another org/account.
           secrets: |
-            github_token=${{ secrets.GITHUB_TOKEN }}
+            github_token=${{ secrets.GHCR_READ_TOKEN || secrets.GITHUB_TOKEN }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
