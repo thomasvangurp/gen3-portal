@@ -1,0 +1,68 @@
+# docker build -t ff .
+# docker run -p 3000:3000 -it ff
+# Build stage
+FROM --platform=$BUILDPLATFORM node:24.14.0-trixie-slim AS builder
+
+ARG TARGETPLATFORM
+ARG BUILDPLATFORM
+
+WORKDIR /gen3
+
+# Copy dependency files first for better caching
+COPY package.json package-lock.json .npmrc ./
+
+# Install ALL dependencies once (including dev deps for build).
+# The @se4bio scope (e.g. @se4bio/trial-matcher-app) is on GitHub Packages
+# and requires auth even for public packages. The token is passed in via
+# a BuildKit secret; the RUN block drops it before caching so it never
+# lands in the image layers.
+RUN --mount=type=secret,id=github_token \
+    npm config set fetch-retries 5 && \
+    npm config set fetch-retry-mintimeout 20000 && \
+    npm config set fetch-retry-maxtimeout 120000 && \
+    printf "//npm.pkg.github.com/:_authToken=%s\n" "$(cat /run/secrets/github_token)" >> /root/.npmrc && \
+    npm ci && \
+    npm cache clean --force && \
+    rm -f /root/.npmrc
+
+# Copy necessary config files
+COPY next.config.js tsconfig.json tailwind.config.js postcss.config.js ./
+COPY .env.production ./
+
+# Copy source files
+COPY ./src ./src
+COPY ./public ./public
+COPY ./config ./config
+COPY ./start.sh ./
+
+# Build and prune
+RUN npm run build && \
+    npm prune --omit=dev;
+
+# Production stage
+FROM node:24.14.0-trixie-slim AS runner
+
+WORKDIR /gen3
+
+RUN addgroup --system --gid 1001 nextjs && \
+    adduser --system --uid 1001 nextjs
+
+# Copy only production dependencies
+COPY --from=builder --chown=nextjs:nextjs /gen3/package.json ./
+COPY --from=builder --chown=nextjs:nextjs /gen3/node_modules ./node_modules
+COPY --from=builder --chown=nextjs:nextjs /gen3/config ./config
+COPY --from=builder --chown=nextjs:nextjs /gen3/.next ./.next
+COPY --from=builder --chown=nextjs:nextjs /gen3/public ./public
+COPY --from=builder --chown=nextjs:nextjs /gen3/start.sh ./start.sh
+
+RUN mkdir -p .next/cache/images && \
+    chmod +x start.sh && \
+    chown -R nextjs:nextjs .next/cache
+
+USER nextjs:nextjs
+
+ENV NODE_ENV=production \
+    PORT=3000 \
+    NEXT_TELEMETRY_DISABLED=1
+
+CMD ["sh", "./start.sh"]
