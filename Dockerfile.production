@@ -16,13 +16,20 @@ COPY package.json package-lock.json .npmrc ./
 # and requires auth even for public packages. The token is passed in via
 # a BuildKit secret; the RUN block drops it before caching so it never
 # lands in the image layers.
+#
+# `--mount=type=cache,target=/root/.npm` keeps the package tarballs
+# across builds so a single-dep bump (the common case for our release
+# cascade) re-fetches only the changed package instead of all ~600MB.
+# `npm cache clean` is intentionally dropped — it would empty the
+# mounted cache and defeat the purpose. Mount is sharing=locked so
+# concurrent runs serialize on the cache rather than corrupting it.
 RUN --mount=type=secret,id=github_token \
+    --mount=type=cache,target=/root/.npm,sharing=locked \
     npm config set fetch-retries 5 && \
     npm config set fetch-retry-mintimeout 20000 && \
     npm config set fetch-retry-maxtimeout 120000 && \
     printf "//npm.pkg.github.com/:_authToken=%s\n" "$(cat /run/secrets/github_token)" >> /root/.npmrc && \
-    npm ci && \
-    npm cache clean --force && \
+    npm ci --prefer-offline --no-audit --no-fund && \
     rm -f /root/.npmrc
 
 # Copy necessary config files
@@ -35,8 +42,10 @@ COPY ./public ./public
 COPY ./config ./config
 COPY ./start.sh ./
 
-# Build and prune
-RUN npm run build && \
+# Build with Next.js cache mount — incremental rebuilds reuse compiled
+# chunks across builds (~2-3 min → ~30-60 s on a hit).
+RUN --mount=type=cache,target=/gen3/.next/cache,sharing=locked \
+    npm run build && \
     npm prune --omit=dev;
 
 # Production stage
