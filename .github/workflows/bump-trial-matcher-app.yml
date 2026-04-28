@@ -1,0 +1,69 @@
+name: Bump @se4bio/trial-matcher-app
+
+# Receives a repository_dispatch from clinical-trial-matcher-fe's
+# publish-package.yml when a new package version lands on GH Packages.
+# Updates package.json + package-lock.json to that version on `main`,
+# which then triggers build-image.yml and produces a fresh
+# ghcr.io/<owner>/gen3-portal:main image.
+#
+# Why a regular commit and not a PR: gen3-portal's `main` is a
+# fast-forward branch with no review (it's a deployment fork), so a PR
+# adds latency without value. If you ever protect main, switch to
+# `peter-evans/create-pull-request@v6` with `auto-merge: true`.
+
+on:
+  repository_dispatch:
+    types: [trial-matcher-app-published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Package version to pin (e.g. 0.1.18)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bump-trial-matcher-app
+  cancel-in-progress: false  # don't drop a bump even if a newer one queues
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@se4bio'
+
+      # Resolve target version from either dispatch input or
+      # repository_dispatch payload.
+      - id: target
+        run: |
+          v="${{ github.event.client_payload.version || inputs.version }}"
+          [ -n "$v" ] || { echo "no version provided"; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Install requested version
+        run: npm install --save "@se4bio/trial-matcher-app@^${{ steps.target.outputs.version }}" --no-audit --no-fund
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet package.json package-lock.json; then
+            echo "Already on requested version — nothing to commit."
+            exit 0
+          fi
+          git add package.json package-lock.json
+          git commit -m "Bump @se4bio/trial-matcher-app to ${{ steps.target.outputs.version }}"
+          git push origin main
