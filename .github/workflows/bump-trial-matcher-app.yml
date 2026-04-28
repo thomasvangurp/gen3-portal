@@ -32,10 +32,15 @@ jobs:
   bump:
     runs-on: ubuntu-latest
     steps:
+      # Use a PAT instead of the auto GITHUB_TOKEN so the resulting Bump
+      # commit triggers downstream `on: push` workflows (build-image.yml).
+      # Pushes made with GITHUB_TOKEN are silently excluded from triggering
+      # other workflows by GitHub to prevent infinite loops — which here
+      # killed the cascade and left the portal image one version behind.
       - uses: actions/checkout@v4
         with:
           ref: main
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.PUSH_TO_MAIN_PAT || secrets.GITHUB_TOKEN }}
 
       - uses: actions/setup-node@v4
         with:
