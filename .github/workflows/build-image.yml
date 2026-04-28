@@ -54,3 +54,16 @@ jobs:
             github_token=${{ secrets.GHCR_READ_TOKEN || secrets.GITHUB_TOKEN }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Tell ctm-gen3-config a new :main digest is live so it can rollout
+      # the frontend-framework deployment. Closes the last manual step in
+      # the FE→portal release chain (see ctm-gen3-config CLAUDE.md
+      # "Release / version-bump policy").
+      - name: Notify ctm-gen3-config to rollout
+        if: ${{ github.ref == 'refs/heads/main' }}
+        run: |
+          curl -sfL -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.CONFIG_REPO_DISPATCH_TOKEN }}" \
+            https://api.github.com/repos/se4bio/gen3-config/dispatches \
+            -d '{"event_type":"portal-image-pushed","client_payload":{"sha":"${{ github.sha }}"}}'
