@@ -13,7 +13,7 @@
     "predev": " NODE_ENV=development npm run build:middlewarePaths",
     "dev": "next dev",
     "prebuild": "NODE_ENV=production npm run build:middlewarePaths",
-    "build": "next build",
+    "build": "next build --turbopack",
     "build:volume": "npm run build:middlewarePathsMatchAll && next build",
     "start": "next start",
     "setupCommons": "npm run buildColors && npm run getSchema && npm run getDRSToHostname && npm run buildIcons && npm run build:middlewarePaths",
